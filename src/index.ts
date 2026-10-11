@@ -1,15 +1,33 @@
 import fs from "fs/promises";
 import { openAIClient } from "./llm/openai.js";
 import { CHECK_IDEA_PROMPT, DETECT_LACKNESS_PROMPT, GET_IDEA_PROMPT, GET_RELATED_FEATURES_PROMPT } from "./prompt/index.js";
-
 const MAX_DEPTH = 4;
-
+type Idea = {
+  id: string;
+  feature: string;
+  reason: string;
+  confidence: number;
+  productName: string | undefined;
+};
+type FeatureEntry = { id: string; idea: Idea };
+const formatFeature = (entry: FeatureEntry): string =>
+  `${entry.idea.feature} / ${entry.idea.confidence} : ${entry.idea.reason}`;
+const featureStrings = (entries: FeatureEntry[]): string[] =>
+  entries.map(formatFeature);
+const asIdea = (raw: any, productName: string | undefined, id: string): Idea => {
+  if (!raw || typeof raw.feature !== "string" || typeof raw.reason !== "string" ||
+      typeof raw.confidence !== "number" || !Number.isFinite(raw.confidence)) {
+    throw new Error("Invalid idea response");
+  }
+  return { id, feature: raw.feature, reason: raw.reason,
+    confidence: raw.confidence, productName };
+};
 async function improveIdea(
   reason: string,
   targetProduct: string,
   purpose: string,
   currentFeatures: string[],
-  currentFeature: any,
+  currentFeature: Idea,
   allFeatures: string[],
   invertedIndex: any,
   area: string
@@ -128,7 +146,6 @@ async function improveIdea(
   } 
   return highestConfidenceIdea;
 }
-
 async function main(purpose: string, targetProduct: string) {
   const now = Date.now();
   await fs.mkdir(`./json/${now}_${targetProduct}`, { recursive: true });
@@ -213,17 +230,14 @@ async function main(purpose: string, targetProduct: string) {
   console.log("Search target:", searchTarget.length);
   await fs.writeFile(`./json/${now}_${targetProduct}/search_target.json`, JSON.stringify(searchTarget, null, 2), "utf-8");
   // 4
-  for (const i in searchTarget.slice(0, 5)) {
-    let ideaHistory: any[] = [];
-    const target = searchTarget[i];
-    console.log("Target : ", i);
-    if (!target) {
-      continue;
-    }
-    console.log("Searching for target:", target.product, "with feature:", target.feature.slice(0, 30), "...");
+  for (const [i, target] of searchTarget.slice(0, 5).entries()) {
+    const ideaHistory: any[] = [];
+    const historyPath = `./json/${now}_${targetProduct}/ideaHistory_${i}.json`;
+    const featuresPath = `./json/${now}_${targetProduct}/currentFeatures_${i}.json`;
+    console.log("Searching for target:", target.product, "with feature:", target.feature.slice(0, 30));
     const newIdeaString = await openAIClient.getResponse(
       JSON.stringify({
-        purpose, 
+        purpose,
         current_features: [],
         features_to_add: {
           target_feature: `${target.feature} : ${target.productStep}`,
@@ -233,141 +247,112 @@ async function main(purpose: string, targetProduct: string) {
       GET_IDEA_PROMPT,
       false,
     );
-    let newIdea: any;
-    let oldIdea: any;
+    let currentFeature: Idea;
     try {
-      newIdea = JSON.parse(newIdeaString);
-      newIdea = {
-        ...newIdea.new_ideas,
-        productName: target.productName
-      };
+      currentFeature = asIdea(JSON.parse(newIdeaString).new_ideas, target.productName, `target-${i}-idea-0`);
     } catch (error) {
-      console.error("Failed to parse new idea JSON:", error);
+      console.error("Failed to parse initial idea:", error);
       continue;
     }
-    let depth = 0;
-    let currentFeatures = [newIdea.feature];
-    let currentFeature = {
-      feature: newIdea.feature,
-      reason: newIdea.reason,
-      confidence: newIdea.confidence,
-      productName: newIdea.productName
-    }
-    let shouldBreak = false;
-    while(depth < MAX_DEPTH && !shouldBreak) {
-      // 5
-      const checkStatus = await openAIClient.getResponse(
-        JSON.stringify({
-          purpose,
-          current_features: currentFeatures,
-          features_to_add: currentFeature
-        }),
-        CHECK_IDEA_PROMPT,
-        false,
-      );
+    // Maintain one authoritative structured state; only format it when calling prompts.
+    let entries: FeatureEntry[] = [{ id: currentFeature.id, idea: currentFeature }];
+    for (let depth = 0; depth < MAX_DEPTH; depth++) {
+      const evaluatedIdea = { ...currentFeature };
+      const evaluatedFeatures = featureStrings(entries);
+      let checkStatusJson: any;
       try {
-        // 6
-        const checkStatusJson = JSON.parse(checkStatus);
-        const lackness = checkStatusJson.lackness;
-        const lacknessArea = lackness.area;
-        ideaHistory.push({
-          depth,
-          currentFeatures: [...currentFeatures],
-          lacknessArea,
-          lacknessReason: lackness.reason,
-          productName: newIdea.productName,
-        });
-        oldIdea = { ...newIdea };
-        if (lacknessArea === "FAILED") {
-          console.log("Idea check failed for target:", target.product, "with feature:", target.feature.slice(0, 30));
-          shouldBreak = true;
-        }
-        if (lacknessArea === "COMPLETED") {
-          console.log("Idea check completed for target:", target.product, "with feature:", target.feature.slice(0, 30));
-          shouldBreak = true;
-        }
-        if (lacknessArea === "NEED_IMPROVEMENT") {
-          newIdea = await improveIdea(
-            lackness.reason,
-            targetProduct,
+        const checkStatus = await openAIClient.getResponse(
+          JSON.stringify({
             purpose,
-            currentFeatures,
-            newIdea.feature, 
-            allFeatures,
-            invertedIndex,
-            "improvement"
-          )
-          if (!newIdea) {
-            console.error("Failed to improve idea for reason:", lackness.reason);
-            shouldBreak = true;
-          } else {
-          currentFeatures = currentFeatures.map((f) => {
-            return f === oldIdea.feature ? `${newIdea.feature} / ${newIdea.confidence} : ${newIdea.reason}` : f;
-          });
-          currentFeature = {
-            feature: newIdea.feature,
-            reason: newIdea.reason,
-            confidence: newIdea.confidence,
-            productName: newIdea.productName
-          };
-        }
-        }
-        if (lacknessArea === "NEED_AFTER_CARE") {
-          newIdea = await improveIdea(
-            lackness.reason,
-            targetProduct,
-            purpose,
-            currentFeatures,
-            newIdea.feature, 
-            allFeatures,
-            invertedIndex,
-            "after"
-          );
-          if (!newIdea) {
-            console.error("Failed to improve idea for reason:", lackness.reason);
-            shouldBreak = true;
-          } else {
-          currentFeatures.push(`${newIdea.feature} / ${newIdea.confidence} : ${newIdea.reason}`);
-          currentFeature = {
-            feature: newIdea.feature,
-            reason: newIdea.reason,
-            confidence: newIdea.confidence,
-            productName: newIdea.productName
-          };
-        }
-        }
-        if (lacknessArea === "NEED_BEFORE_CARE") {
-          newIdea = await improveIdea(
-            lackness.reason,
-            targetProduct,
-            purpose,
-            currentFeatures,
-            newIdea.feature, 
-            allFeatures,
-            invertedIndex,
-            "before"
-          );
-          if (!newIdea) {
-            console.error("Failed to improve idea for reason:", lackness.reason);
-            shouldBreak = true;
-          } else {
-          currentFeatures = [`${newIdea.feature} / ${newIdea.confidence} : ${newIdea.reason}`, ...currentFeatures];
-          currentFeature = {
-            feature: newIdea.feature,
-            reason: newIdea.reason,
-            confidence: newIdea.confidence,
-            productName: newIdea.productName
-          };
-        }
+            current_features: evaluatedFeatures,
+            features_to_add: evaluatedIdea
+          }),
+          CHECK_IDEA_PROMPT,
+          false,
+        );
+        checkStatusJson = JSON.parse(checkStatus);
+        if (!checkStatusJson?.lackness?.area) {
+          throw new Error("Missing lackness.area");
         }
       } catch (error) {
-        console.error("Failed to parse check status JSON:", error);
+        console.error("Failed to check idea:", error);
+        ideaHistory.push({ depth, evaluatedIdea, currentFeatures: evaluatedFeatures,
+          status: "CHECK_FAILED", error: String(error) });
         break;
       }
-      depth++;
+      const { area: lacknessArea, reason: lacknessReason } = checkStatusJson.lackness;
+      const record: any = {
+        depth,
+        evaluatedIdea,
+        currentFeatures: evaluatedFeatures,
+        lacknessArea,
+        lacknessReason,
+        productName: evaluatedIdea.productName,
+      };
+      ideaHistory.push(record);
+      if (lacknessArea === "FAILED" || lacknessArea === "COMPLETED") {
+        record.status = lacknessArea;
+        break;
+      }
+      const relationByArea: Record<string, string> = {
+        NEED_IMPROVEMENT: "improvement",
+        NEED_AFTER_CARE: "after",
+        NEED_BEFORE_CARE: "before",
+      };
+      const relationship = relationByArea[lacknessArea];
+      if (!relationship) {
+        record.status = "UNKNOWN_AREA";
+        console.error("Unknown lackness area:", lacknessArea);
+        break;
+      }
+      // No need to generate an idea that cannot be checked within MAX_DEPTH.
+      if (depth === MAX_DEPTH - 1) {
+        record.status = "MAX_DEPTH_REACHED";
+        break;
+      }
+      let improvedIdea: Idea | undefined;
+      try {
+        const result = await improveIdea(
+          lacknessReason,
+          targetProduct,
+          purpose,
+          evaluatedFeatures,
+          evaluatedIdea,
+          allFeatures,
+          invertedIndex,
+          relationship,
+        );
+        if (result) {
+          improvedIdea = asIdea(result, result.productName, `target-${i}-idea-${depth + 1}`);
+        }
+      } catch (error) {
+        console.error("Failed to improve idea:", error);
+        record.error = String(error);
+      }
+      if (!improvedIdea) {
+        record.status = "IMPROVEMENT_FAILED";
+        break;
+      }
+      if (lacknessArea === "NEED_IMPROVEMENT") {
+        // Replace exactly the currently evaluated idea, not a formatted string.
+        const index = entries.findIndex(entry => entry.id === evaluatedIdea.id);
+        if (index === -1) {
+          record.status = "TARGET_NOT_FOUND";
+          break;
+        }
+        entries[index] = { id: improvedIdea.id, idea: improvedIdea };
+      } else if (lacknessArea === "NEED_AFTER_CARE") {
+        entries.push({ id: improvedIdea.id, idea: improvedIdea });
+      } else {
+        entries.unshift({ id: improvedIdea.id, idea: improvedIdea });
+      }
+      currentFeature = improvedIdea;
+      record.generatedIdea = { ...improvedIdea };
+      record.featuresAfter = featureStrings(entries);
+      record.status = "IMPROVED";
     }
-    await fs.writeFile(`json/${now}_${targetProduct}/ideaHistory_${i}.json`, JSON.stringify(ideaHistory, null, 2));
-    await fs.writeFile(`json/${now}_${targetProduct}/currentFeatures_${i}.json`, JSON.stringify(currentFeatures, null, 2));
+    await fs.writeFile(historyPath, JSON.stringify(ideaHistory, null, 2), "utf-8");
+    await fs.writeFile(featuresPath, JSON.stringify(featureStrings(entries), null, 2), "utf-8");
   }
 }
 // 1
