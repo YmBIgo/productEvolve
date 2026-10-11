@@ -61,10 +61,10 @@ async function improveIdea(
       const entriesArray = e.split(":");
       const productName_ = entriesArray[0];
       const productStep_ = entriesArray[1];
-      // 以下の改修はあまり入れたくない...
-      //   if (productName_ === targetProduct) {
-      //     continue;
-      //   }
+      // 以下のif文を入れるべきか入れないべきか検討中...
+      if (productName_ === targetProduct) {
+        continue;
+      }
       let productJson: any;
       try {
         const productJsonString = await fs.readFile(`./json/${productName_}.json`, "utf-8");
@@ -90,7 +90,7 @@ async function improveIdea(
   console.log("Search target:", searchTarget.length);
   searchTarget.sort((a, b) => b.confidence - a.confidence);
   searchTarget = searchTarget.slice(0, 5); // 上位5件に絞る
-  console.log("Top 5 search targets:", searchTarget.map((st) => st.feature.slice(0, 30) + "\n"));
+  console.log("Top 5 search targets:", searchTarget.map((st) => st.feature.slice(0, 30)).join("\n"));
   // 修正余地あり...
   let highestConfidence = 0;
   let highestConfidenceIdea = null;
@@ -374,8 +374,9 @@ async function main(purpose: string, targetProduct: string) {
 // 洗濯機・衣服についているあらゆる汚れを落とす
 // ヘアドライヤー・髪や頭皮の水分を効率的に除去し、髪を乾燥・整髪する
 // 冷蔵庫・食品や飲料を低温で保存し、鮮度を保ちながら腐敗や劣化を抑え、長期間安全に保管する
-// 掃除機・床や家具などの表面に付着・堆積したほこり、ゴミ、異物を除去し、清潔な状態にすること。
+// 掃除機・床や家具などの表面に付着・堆積したほこり、ゴミ、異物を除去し、清潔な状態にする
 // IHクッキングヒーター・鍋やフライパンを効率的に加熱し、調理を行う
-const purpose = "鍋やフライパンを効率的に加熱し、調理を行う";
-const targetProduct = "IHクッキングヒーター";
+// ロボット掃除機・床や家具などの表面に付着・堆積したほこり、ゴミ、異物を除去し、清潔な状態にする
+const purpose = "床や家具などの表面に付着・堆積したほこり、ゴミ、異物を除去し、清潔な状態にする";
+const targetProduct = "ロボット掃除機";
 main(purpose, targetProduct);
