@@ -14,7 +14,7 @@
 2. 製品アイデアを生成する
    - 対象製品の目的に関連する機能を検索します。
    - 別製品の機能を転用した初期アイデアを生成します。
-   - アイデアを `COMPLETED`、`FAILED`、`NEED_IMPROVEMENT`、`NEED_BEFORE_CARE`、`NEED_AFTER_CARE` のいずれかとして評価します。
+   - アイデアを `NEED_IMPROVEMENT`、`NEED_BEFORE_CARE`、`NEED_AFTER_CARE` のいずれかとして評価します。
    - 不足がある場合は関連機能を追加し、アイデアを反復的に改善します。
 
 より詳しい処理手順は [docs/flow.md](docs/flow.md) を参照してください。
