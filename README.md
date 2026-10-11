@@ -76,7 +76,7 @@ const targetProduct = "IHクッキングヒーター";
 
 ```bash
 npm run build
-npm start
+npm run start
 ```
 
 結果は `json/<タイムスタンプ>_<対象製品>/` に保存されます。
@@ -108,7 +108,7 @@ npm start
 | --- | --- |
 | `npm run build` | TypeScriptを`dist/`へコンパイルする |
 | `npm run indexing` | コンパイル済みのインデックス生成処理を実行する |
-| `npm start` | コンパイル済みのアイデア生成処理を実行する |
+| `npm run start` | コンパイル済みのアイデア生成処理を実行する |
 
 `indexing` と `start` は `dist/` 内のJavaScriptを実行します。ソースを変更した場合は、先に `npm run build` を実行してください。
 
