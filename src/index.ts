@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import { openAIClient } from "./llm/openai.js";
 import { CHECK_IDEA_PROMPT, DETECT_LACKNESS_PROMPT, GET_IDEA_PROMPT, GET_RELATED_FEATURES_PROMPT } from "./prompt/index.js";
-const MAX_DEPTH = 4;
+const MAX_DEPTH = 8;
 type Idea = {
   id: string;
   feature: string;
@@ -30,7 +30,8 @@ async function improveIdea(
   currentFeature: Idea,
   allFeatures: string[],
   invertedIndex: any,
-  area: string
+  area: string,
+  filePathPrefix: string
 ) {
   // 
   const detectedKeywordString = await openAIClient.getResponse(
@@ -85,7 +86,7 @@ async function improveIdea(
       }
       let productJson: any;
       try {
-        const productJsonString = await fs.readFile(`./json/${productName_}.json`, "utf-8");
+        const productJsonString = await fs.readFile(`${filePathPrefix}/${productName_}.json`, "utf-8");
         productJson = JSON.parse(productJsonString);
       } catch (error) {
         console.error(`Failed to read product JSON for ${productName_}:`, error);
@@ -109,7 +110,6 @@ async function improveIdea(
   searchTarget.sort((a, b) => b.confidence - a.confidence);
   searchTarget = searchTarget.slice(0, 5); // 上位5件に絞る
   console.log("Top 5 search targets:", searchTarget.map((st) => st.feature.slice(0, 30)).join("\n"));
-  // 修正余地あり...
   let highestConfidence = 0;
   let highestConfidenceIdea = null;
   for (const target of searchTarget) {
@@ -146,14 +146,15 @@ async function improveIdea(
   } 
   return highestConfidenceIdea;
 }
-async function main(purpose: string, targetProduct: string) {
+async function main(purpose: string, targetProduct: string, isProduct: boolean = true) {
+  const filePathPrefix = isProduct ? "./json" : "./json2";
   const now = Date.now();
-  await fs.mkdir(`./json/${now}_${targetProduct}`, { recursive: true });
+  await fs.mkdir(`${filePathPrefix}/${now}_${targetProduct}`, { recursive: true });
   // docs/flow.md を元に作る
   // 2
   let allFeatures;
   try {
-    const allFeaturesString = await fs.readFile("./json/all_features.json", "utf-8");
+    const allFeaturesString = await fs.readFile(`${filePathPrefix}/all_features.json`, "utf-8");
     allFeatures = JSON.parse(allFeaturesString);
   } catch (error) {
     console.error("Failed to read all_features.json:", error);
@@ -180,7 +181,7 @@ async function main(purpose: string, targetProduct: string) {
   // 3 
   let invertedIndex;
   try {
-    const invertedIndexString = await fs.readFile("./json/inverted_features_index.json", "utf-8");
+    const invertedIndexString = await fs.readFile(`${filePathPrefix}/inverted_features_index.json`, "utf-8");
     invertedIndex = JSON.parse(invertedIndexString);
   } catch (error) {
     console.error("Failed to read inverted_index.json:", error);
@@ -206,7 +207,7 @@ async function main(purpose: string, targetProduct: string) {
       }
       let productJson: any;
       try {
-        const productJsonString = await fs.readFile(`./json/${productName_}.json`, "utf-8");
+        const productJsonString = await fs.readFile(`${filePathPrefix}/${productName_}.json`, "utf-8");
         productJson = JSON.parse(productJsonString);
       } catch (error) {
         console.error(`Failed to read product JSON for ${productName_}:`, error);
@@ -228,12 +229,12 @@ async function main(purpose: string, targetProduct: string) {
   };
   searchTarget.sort((a, b) => b.confidence - a.confidence);
   console.log("Search target:", searchTarget.length);
-  await fs.writeFile(`./json/${now}_${targetProduct}/search_target.json`, JSON.stringify(searchTarget, null, 2), "utf-8");
+  await fs.writeFile(`${filePathPrefix}/${now}_${targetProduct}/search_target.json`, JSON.stringify(searchTarget, null, 2), "utf-8");
   // 4
   for (const [i, target] of searchTarget.slice(0, 5).entries()) {
     const ideaHistory: any[] = [];
-    const historyPath = `./json/${now}_${targetProduct}/ideaHistory_${i}.json`;
-    const featuresPath = `./json/${now}_${targetProduct}/currentFeatures_${i}.json`;
+    const historyPath = `${filePathPrefix}/${now}_${targetProduct}/ideaHistory_${i}.json`;
+    const featuresPath = `${filePathPrefix}/${now}_${targetProduct}/currentFeatures_${i}.json`;
     console.log("Searching for target:", target.product, "with feature:", target.feature.slice(0, 30));
     const newIdeaString = await openAIClient.getResponse(
       JSON.stringify({
@@ -321,6 +322,7 @@ async function main(purpose: string, targetProduct: string) {
           allFeatures,
           invertedIndex,
           relationship,
+          filePathPrefix,
         );
         if (result) {
           improvedIdea = asIdea(result, result.productName, `target-${i}-idea-${depth + 1}`);
@@ -344,6 +346,7 @@ async function main(purpose: string, targetProduct: string) {
       } else if (lacknessArea === "NEED_AFTER_CARE") {
         entries.push({ id: improvedIdea.id, idea: improvedIdea });
       } else {
+        // NEED_BEFORE_CARE
         entries.unshift({ id: improvedIdea.id, idea: improvedIdea });
       }
       currentFeature = improvedIdea;
@@ -362,6 +365,14 @@ async function main(purpose: string, targetProduct: string) {
 // 掃除機・床や家具などの表面に付着・堆積したほこり、ゴミ、異物を除去し、清潔な状態にする
 // IHクッキングヒーター・鍋やフライパンを効率的に加熱し、調理を行う
 // ロボット掃除機・床や家具などの表面に付着・堆積したほこり、ゴミ、異物を除去し、清潔な状態にする
-const purpose = "床や家具などの表面に付着・堆積したほこり、ゴミ、異物を除去し、清潔な状態にする";
-const targetProduct = "ロボット掃除機";
-main(purpose, targetProduct);
+// const purpose = "衣服についているあらゆる汚れを落とす";
+// const targetProduct = "洗濯機";
+// main(purpose, targetProduct);
+
+// 
+// 構文解析_Parsing : 文字列やプログラムなどの入力を文法規則に従って解析し、その構造や要素間の関係を明らかにする
+// 型推論_Type_Inference : プログラムの型を自動的に推論し、型安全性を確保する
+// A*探索 : グラフ構造の中で、スタート地点からゴール地点までの最小コストの経路を効率よく見つける
+const targetProduct = "型推論_Type_Inference";
+const purpose = "プログラムの型を自動的に推論し、型安全性を確保する";
+main(purpose, targetProduct, false);

@@ -1,5 +1,5 @@
 import fs from "fs/promises";
-import { ALL_PRODUCTS } from "./const/product.js";
+import { ALL_IT_TECHNOLOGIES, ALL_PRODUCTS } from "./const/product.js";
 import { openAIClient } from "./llm/openai.js";
 import { GET_PRODUCT_PROCESS_PROMPT } from "./prompt/index.js";
 
@@ -40,30 +40,31 @@ function invertFeaturesIndex(oldInvertedIndex: Record<string, string[]>, newFeat
   return newInvertedIndex;
 }
 
-async function main() {
-  const productName = ALL_PRODUCTS; //.slice(0, 3);
+async function main(isProduct: boolean = true) {
+  const filePathPrefix = isProduct ? "./json" : "./json2";
+  const productName = isProduct ? ALL_PRODUCTS : ALL_IT_TECHNOLOGIES; //.slice(0, 3);
   let features: string[] = [];
   try {
-    await fs.access(`./json/all_features.json`);
-    const featuresData = await fs.readFile(`./json/all_features.json`, "utf-8");
+    await fs.access(`${filePathPrefix}/all_features.json`);
+    const featuresData = await fs.readFile(`${filePathPrefix}/all_features.json`, "utf-8");
     features = JSON.parse(featuresData);
   } catch (error) {
-    console.error(`File ./json/all_features.json does not exist. continue generating...`);
+    console.error(`File ${filePathPrefix}/all_features.json does not exist. continue generating...`);
   }
   let invertedFeaturesIndex: Record<string, string[]> = {};
   try {
-    await fs.access(`./json/inverted_features_index.json`);
-    const data = await fs.readFile(`./json/inverted_features_index.json`, "utf-8");
+    await fs.access(`${filePathPrefix}/inverted_features_index.json`);
+    const data = await fs.readFile(`${filePathPrefix}/inverted_features_index.json`, "utf-8");
     invertedFeaturesIndex = JSON.parse(data);
   } catch (error) {
-    console.error(`File ./json/inverted_features_index.json does not exist. continue generating...`);
+    console.error(`File ${filePathPrefix}/inverted_features_index.json does not exist. continue generating...`);
   }
   for (const name of productName) {
     try {
-      await fs.access(`./json/${name}.json`);
+      await fs.access(`${filePathPrefix}/${name}.json`);
       continue;
     } catch (error) {
-      console.error(`File ./json/${name}.json does not exist. continue generating...`);
+      console.error(`File ${filePathPrefix}/${name}.json does not exist. continue generating...`);
     }
     const {
       response: productJson,
@@ -71,12 +72,13 @@ async function main() {
     } = await getProductJson(name, []);
     features = Array.from(new Set([...features, ...productFeatures]));
     invertedFeaturesIndex = invertFeaturesIndex(invertedFeaturesIndex, productFeatures, JSON.parse(productJson).process, name);
-    await fs.writeFile(`./json/all_features.json`, JSON.stringify(features, null, 2));
-    await fs.writeFile(`./json/inverted_features_index.json`, JSON.stringify(invertedFeaturesIndex, null, 2));
-    await fs.writeFile(`./json/${name}.json`, productJson);
+    await fs.writeFile(`${filePathPrefix}/all_features.json`, JSON.stringify(features, null, 2));
+    await fs.writeFile(`${filePathPrefix}/inverted_features_index.json`, JSON.stringify(invertedFeaturesIndex, null, 2));
+    await fs.writeFile(`${filePathPrefix}/${name}.json`, productJson);
   }
-  await fs.writeFile(`./json/all_features.json`, JSON.stringify(features, null, 2));
-  await fs.writeFile(`./json/inverted_features_index.json`, JSON.stringify(invertedFeaturesIndex, null, 2));
+  await fs.writeFile(`${filePathPrefix}/all_features.json`, JSON.stringify(features, null, 2));
+  await fs.writeFile(`${filePathPrefix}/inverted_features_index.json`, JSON.stringify(invertedFeaturesIndex, null, 2));
 }
 
-main();
+// main();
+main(false);
